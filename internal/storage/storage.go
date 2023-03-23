@@ -5,17 +5,21 @@ import (
 	"errors"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrLoginUniqueViolation = errors.New("login already in use")
+var (
+	ErrLoginUniqueViolation     = errors.New("login already in use")
+	ErrIncorrectUserCredentials = errors.New("incorrect user credentials")
+)
 
 type DBStorage struct {
 	pool *pgxpool.Pool
 }
 
-func NewDBStorage(p *pgxpool.Pool, ctx context.Context) (storage *DBStorage, err error) {
+func NewDBStorage(ctx context.Context, p *pgxpool.Pool) (storage *DBStorage, err error) {
 	storage = &DBStorage{
 		pool: p,
 	}
@@ -48,4 +52,16 @@ func (s DBStorage) CreateUser(ctx context.Context, login string, password string
 	}
 
 	return nil
+}
+
+func (s DBStorage) GetUserPassword(ctx context.Context, login string) (password string, err error) {
+	err = s.pool.QueryRow(ctx, "SELECT u.password FROM public.user u WHERE u.login = $1", login).Scan(&password)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", ErrIncorrectUserCredentials
+		}
+		return "", err
+	}
+
+	return password, nil
 }

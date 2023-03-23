@@ -16,6 +16,11 @@ type handler struct {
 	storage *storage.DBStorage
 }
 
+type user struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
 func NewHandler(s *storage.DBStorage) http.Handler {
 	router := gin.Default()
 
@@ -25,16 +30,12 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 
 	router.Use(middleware.Decompress(), gzip.Gzip(gzip.DefaultCompression))
 	router.POST("/api/user/register", h.RegisterUser)
+	router.POST("/api/user/login", h.LogInUser)
 
 	return router
 }
 
 func (h handler) RegisterUser(c *gin.Context) {
-	type user struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
-	}
-
 	var u user
 	if err := c.ShouldBindJSON(&u); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
@@ -59,4 +60,32 @@ func (h handler) RegisterUser(c *gin.Context) {
 
 	c.Header("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(u.Login+":"+u.Password)))
 	c.JSON(http.StatusOK, gin.H{"message": "user successfully registered and authenticated"})
+}
+
+func (h handler) LogInUser(c *gin.Context) {
+	var u user
+	if err := c.ShouldBindJSON(&u); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
+		return
+	}
+
+	hashedPassword, err := h.storage.GetUserPassword(c, u.Login)
+	if err != nil {
+		var httpStatusCode int
+		if errors.Is(err, storage.ErrIncorrectUserCredentials) {
+			httpStatusCode = http.StatusUnauthorized
+		} else {
+			httpStatusCode = http.StatusInternalServerError
+		}
+		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(u.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error()})
+		return
+	}
+
+	c.Header("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(u.Login+":"+u.Password)))
+	c.JSON(http.StatusOK, gin.H{"message": "user successfully logged in"})
 }

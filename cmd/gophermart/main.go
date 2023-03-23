@@ -29,7 +29,7 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	storage, err := storage.NewDBStorage(dbpool, dbCtx)
+	storage, err := storage.NewDBStorage(dbCtx, dbpool)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}

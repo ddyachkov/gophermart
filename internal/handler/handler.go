@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 
 	"github.com/ShiraazMoollatjie/goluhn"
 	"github.com/ddyachkov/gophermart/internal/middleware"
@@ -106,13 +105,8 @@ func (h handler) PostUserOrder(c *gin.Context) {
 		return
 	}
 
-	if err = goluhn.Validate(string(body)); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
-		return
-	}
-
-	orderNumber, err := strconv.Atoi(string(body))
-	if err != nil {
+	orderNumber := string(body)
+	if err = goluhn.Validate(orderNumber); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
 		return
 	}

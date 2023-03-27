@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -149,41 +148,38 @@ func TestDBStorage_InsertNewOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	number, err := strconv.Atoi(goluhn.Generate(8))
-	if err != nil {
-		t.Fatal(err)
-	}
+	orderNumber := goluhn.Generate(8)
 
 	tests := []struct {
-		name    string
-		number  int
-		userID  int
-		errType error
+		name        string
+		orderNumber string
+		userID      int
+		errType     error
 	}{
 		{
-			name:    "Positive_NewOrder",
-			number:  number,
-			userID:  userID,
-			errType: nil,
+			name:        "Positive_NewOrder",
+			orderNumber: orderNumber,
+			userID:      userID,
+			errType:     nil,
 		},
 		{
-			name:    "Negative_SameOrder_SameUser",
-			number:  number,
-			userID:  userID,
-			errType: ErrHaveOrderBySameUser,
+			name:        "Negative_SameOrder_SameUser",
+			orderNumber: orderNumber,
+			userID:      userID,
+			errType:     ErrHaveOrderBySameUser,
 		},
 		{
-			name:    "Negative_SameOrder_DiffUser",
-			number:  number,
-			userID:  userID - 1,
-			errType: ErrHaveOrderByDiffUser,
+			name:        "Negative_SameOrder_DiffUser",
+			orderNumber: orderNumber,
+			userID:      userID - 1,
+			errType:     ErrHaveOrderByDiffUser,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 			defer cancel()
-			err := storage.InsertNewOrder(ctx, tt.number, tt.userID)
+			err := storage.InsertNewOrder(ctx, tt.orderNumber, tt.userID)
 			assert.ErrorIs(t, tt.errType, err)
 		})
 	}

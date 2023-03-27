@@ -40,7 +40,7 @@ func (s DBStorage) Prepare(ctx context.Context) (err error) {
 		return err
 	}
 
-	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number BIGINT UNIQUE NOT NULL, uploaded_at timestamp without time zone NOT NULL DEFAULT (current_timestamp AT TIME ZONE 'EETDST'), status TEXT NOT NULL, accrual INTEGER, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number TEXT UNIQUE NOT NULL, uploaded_at timestamp without time zone NOT NULL DEFAULT (current_timestamp AT TIME ZONE 'EETDST'), status TEXT NOT NULL, accrual INTEGER, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (s DBStorage) GetUserInfo(ctx context.Context, login string) (id int, passw
 	return id, password, nil
 }
 
-func (s DBStorage) InsertNewOrder(ctx context.Context, orderNumber int, userID int) (err error) {
+func (s DBStorage) InsertNewOrder(ctx context.Context, orderNumber string, userID int) (err error) {
 	_, err = s.pool.Exec(ctx, "INSERT INTO public.order (number, status, user_id) VALUES ($1, 'NEW', $2)", orderNumber, userID)
 	if err != nil {
 		var pgErr *pgconn.PgError

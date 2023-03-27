@@ -3,8 +3,11 @@ package handler
 import (
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
+	"strconv"
 
+	"github.com/ShiraazMoollatjie/goluhn"
 	"github.com/ddyachkov/gophermart/internal/middleware"
 	"github.com/ddyachkov/gophermart/internal/storage"
 	"github.com/gin-contrib/gzip"
@@ -31,6 +34,12 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 	router.Use(middleware.Decompress(), gzip.Gzip(gzip.DefaultCompression))
 	router.POST("/api/user/register", h.RegisterUser)
 	router.POST("/api/user/login", h.LogInUser)
+
+	authorized := router.Group("/")
+	authorized.Use(h.Authenticate())
+	{
+		authorized.POST("/api/user/orders", h.PostUserOrder)
+	}
 
 	return router
 }
@@ -69,7 +78,7 @@ func (h handler) LogInUser(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := h.storage.GetUserPassword(c, u.Login)
+	_, hashedPassword, err := h.storage.GetUserInfo(c, u.Login)
 	if err != nil {
 		var httpStatusCode int
 		if errors.Is(err, storage.ErrIncorrectUserCredentials) {
@@ -88,4 +97,41 @@ func (h handler) LogInUser(c *gin.Context) {
 
 	c.Header("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(u.Login+":"+u.Password)))
 	c.JSON(http.StatusOK, gin.H{"message": "user successfully logged in"})
+}
+
+func (h handler) PostUserOrder(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+
+	if err = goluhn.Validate(string(body)); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
+		return
+	}
+
+	orderNumber, err := strconv.Atoi(string(body))
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
+		return
+	}
+
+	userID := c.MustGet("userID").(int)
+	err = h.storage.InsertNewOrder(c, orderNumber, userID)
+	if err != nil {
+		var httpStatusCode int
+		switch err {
+		case storage.ErrHaveOrderBySameUser:
+			httpStatusCode = http.StatusOK
+		case storage.ErrHaveOrderByDiffUser:
+			httpStatusCode = http.StatusConflict
+		default:
+			httpStatusCode = http.StatusInternalServerError
+		}
+		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{"message": "new order accepted"})
 }

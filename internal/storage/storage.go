@@ -2,8 +2,11 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
 
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -15,10 +18,32 @@ var (
 	ErrIncorrectUserCredentials = errors.New("incorrect user credentials")
 	ErrHaveOrderBySameUser      = errors.New("order already uploaded by this user")
 	ErrHaveOrderByDiffUser      = errors.New("order already uploaded by different user")
+	ErrNoOrdersFound            = errors.New("no orders found")
 )
 
 type DBStorage struct {
 	pool *pgxpool.Pool
+}
+
+type Order struct {
+	Number     string    `json:"number"`
+	Status     string    `json:"status"`
+	Accrual    int       `json:"accrual,omitempty"`
+	UploadedAt time.Time `json:"-" db:"uploaded_at"`
+}
+
+func (o Order) MarshalJSON() ([]byte, error) {
+	type OrderAlias Order
+
+	aliasValue := struct {
+		OrderAlias
+		UploadedAtRFC3339 string `json:"uploaded_at"`
+	}{
+		OrderAlias:        OrderAlias(o),
+		UploadedAtRFC3339: o.UploadedAt.Format(time.RFC3339),
+	}
+
+	return json.Marshal(aliasValue)
 }
 
 func NewDBStorage(ctx context.Context, p *pgxpool.Pool) (storage *DBStorage, err error) {
@@ -40,7 +65,7 @@ func (s DBStorage) Prepare(ctx context.Context) (err error) {
 		return err
 	}
 
-	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number TEXT UNIQUE NOT NULL, uploaded_at timestamp without time zone NOT NULL DEFAULT (current_timestamp AT TIME ZONE 'EETDST'), status TEXT NOT NULL, accrual INTEGER, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number TEXT UNIQUE NOT NULL, uploaded_at timestamp with time zone NOT NULL DEFAULT (current_timestamp), status TEXT NOT NULL, accrual INTEGER NOT NULL DEFAULT 0, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
 	if err != nil {
 		return err
 	}
@@ -96,4 +121,18 @@ func (s DBStorage) InsertNewOrder(ctx context.Context, orderNumber string, userI
 		return err
 	}
 	return nil
+}
+
+func (s DBStorage) GetUserOrders(ctx context.Context, userID int) (orders []Order, err error) {
+	orders = make([]Order, 0)
+	err = pgxscan.Select(ctx, s.pool, &orders, "SELECT o.number, o.status, o.accrual, o.uploaded_at FROM public.order o WHERE o.user_id = $1", userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(orders) == 0 {
+		return nil, ErrNoOrdersFound
+
+	}
+
+	return orders, nil
 }

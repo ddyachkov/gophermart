@@ -184,3 +184,74 @@ func TestDBStorage_InsertNewOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestDBStorage_GetUserOrders(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	storage, err := NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := random.ASCIIString(4, 10)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(random.ASCIIString(16, 32)), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = storage.CreateUser(dbCtx, login, string(hashedPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID, _, err := storage.GetUserInfo(dbCtx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	err = storage.InsertNewOrder(dbCtx, orderNumber, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		orderNumber string
+		userID      int
+		errType     error
+	}{
+		{
+			name:        "Positive_FoundOrder",
+			orderNumber: orderNumber,
+			userID:      userID,
+			errType:     nil,
+		},
+		{
+			name:        "Negative_NoOrdersFound",
+			orderNumber: "",
+			userID:      userID + 1,
+			errType:     ErrNoOrdersFound,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			gotOrders, err := storage.GetUserOrders(ctx, tt.userID)
+			var gotOrderNumber string
+			if len(gotOrders) > 0 {
+				gotOrderNumber = gotOrders[0].Number
+			}
+			assert.Equal(t, tt.orderNumber, gotOrderNumber)
+			assert.Equal(t, tt.errType, err)
+		})
+	}
+}

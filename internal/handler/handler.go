@@ -38,6 +38,7 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 	authorized.Use(h.Authenticate())
 	{
 		authorized.POST("/api/user/orders", h.PostUserOrder)
+		authorized.GET("/api/user/orders", h.GetUserOrders)
 	}
 
 	return router
@@ -128,4 +129,21 @@ func (h handler) PostUserOrder(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{"message": "new order accepted"})
+}
+
+func (h handler) GetUserOrders(c *gin.Context) {
+	userID := c.MustGet("userID").(int)
+	orders, err := h.storage.GetUserOrders(c, userID)
+	if err != nil {
+		var httpStatusCode int
+		if errors.Is(err, storage.ErrNoOrdersFound) {
+			httpStatusCode = http.StatusNoContent
+		} else {
+			httpStatusCode = http.StatusInternalServerError
+		}
+		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
 }

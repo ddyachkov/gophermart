@@ -288,3 +288,98 @@ func Test_handler_PostUserOrder(t *testing.T) {
 		})
 	}
 }
+
+func Test_handler_GetUserOrders(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	dbStorage, err := storage.NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewHandler(dbStorage)
+
+	firstRegisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	fruBody, err := json.Marshal(firstRegisteredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	bodyReader := strings.NewReader(string(fruBody))
+	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	orderNumber := goluhn.Generate(8)
+	w = httptest.NewRecorder()
+	bodyReader = strings.NewReader(orderNumber)
+	r = httptest.NewRequest(http.MethodPost, "/api/user/orders", bodyReader)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(firstRegisteredUser.Login+":"+firstRegisteredUser.Password)))
+	handler.ServeHTTP(w, r)
+	res = w.Result()
+	require.Equal(t, http.StatusAccepted, res.StatusCode)
+
+	secondRegisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	sruBody, err := json.Marshal(secondRegisteredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	bodyReader = strings.NewReader(string(sruBody))
+	r = httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res = w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	unregisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+
+	tests := []struct {
+		name string
+		user user
+		code int
+	}{
+		{
+			name: "Positive_FoundOrder",
+			user: firstRegisteredUser,
+			code: http.StatusOK,
+		},
+		{
+			name: "Negative_NoOrders",
+			user: secondRegisteredUser,
+			code: http.StatusNoContent,
+		},
+		{
+			name: "Negative_Unauthorized",
+			user: unregisteredUser,
+			code: http.StatusUnauthorized,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
+			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
+			handler.ServeHTTP(w, r)
+			res := w.Result()
+
+			assert.Equal(t, tt.code, res.StatusCode)
+		})
+	}
+}

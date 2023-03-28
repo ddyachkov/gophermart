@@ -383,3 +383,69 @@ func Test_handler_GetUserOrders(t *testing.T) {
 		})
 	}
 }
+
+func Test_handler_GetUserBalance(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	dbStorage, err := storage.NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewHandler(dbStorage)
+
+	registeredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	ruBody, err := json.Marshal(registeredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	bodyReader := strings.NewReader(string(ruBody))
+	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	unregisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+
+	tests := []struct {
+		name string
+		user user
+		code int
+	}{
+		{
+			name: "Positive_FoundOrder",
+			user: registeredUser,
+			code: http.StatusOK,
+		},
+		{
+			name: "Negative_Unauthorized",
+			user: unregisteredUser,
+			code: http.StatusUnauthorized,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
+			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
+			handler.ServeHTTP(w, r)
+			res := w.Result()
+
+			assert.Equal(t, tt.code, res.StatusCode)
+		})
+	}
+}

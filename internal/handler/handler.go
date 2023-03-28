@@ -39,6 +39,7 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 	{
 		authorized.POST("/api/user/orders", h.PostUserOrder)
 		authorized.GET("/api/user/orders", h.GetUserOrders)
+		authorized.GET("/api/user/balance", h.GetUserBalance)
 	}
 
 	return router
@@ -78,7 +79,7 @@ func (h handler) LogInUser(c *gin.Context) {
 		return
 	}
 
-	_, hashedPassword, err := h.storage.GetUserInfo(c, u.Login)
+	_, hashedPassword, err := h.storage.GetUserCredentials(c, u.Login)
 	if err != nil {
 		var httpStatusCode int
 		if errors.Is(err, storage.ErrIncorrectUserCredentials) {
@@ -146,4 +147,15 @@ func (h handler) GetUserOrders(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, orders)
+}
+
+func (h handler) GetUserBalance(c *gin.Context) {
+	userID := c.MustGet("userID").(int)
+	current, withdrawn, err := h.storage.GetUserBalance(c, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"current": current, "withdrawn": withdrawn})
 }

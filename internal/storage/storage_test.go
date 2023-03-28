@@ -65,7 +65,7 @@ func TestDBStorage_CreateUser(t *testing.T) {
 	}
 }
 
-func TestDBStorage_GetUserInfo(t *testing.T) {
+func TestDBStorage_GetUserCredentials(t *testing.T) {
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -111,7 +111,7 @@ func TestDBStorage_GetUserInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 			defer cancel()
-			_, _, err := storage.GetUserInfo(ctx, tt.login)
+			_, _, err := storage.GetUserCredentials(ctx, tt.login)
 			assert.ErrorIs(t, tt.errType, err)
 		})
 	}
@@ -143,7 +143,7 @@ func TestDBStorage_InsertNewOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userID, _, err := storage.GetUserInfo(dbCtx, login)
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestDBStorage_GetUserOrders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userID, _, err := storage.GetUserInfo(dbCtx, login)
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +252,63 @@ func TestDBStorage_GetUserOrders(t *testing.T) {
 			}
 			assert.Equal(t, tt.orderNumber, gotOrderNumber)
 			assert.Equal(t, tt.errType, err)
+		})
+	}
+}
+
+func TestDBStorage_GetUserBalance(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	storage, err := NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := random.ASCIIString(4, 10)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(random.ASCIIString(16, 32)), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = storage.CreateUser(dbCtx, login, string(hashedPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		userID  int
+		wantErr bool
+	}{
+		{
+			name:    "Positive_FoundBalance",
+			userID:  userID,
+			wantErr: false,
+		},
+		{
+			name:    "Negative_NotFoundBalance",
+			userID:  userID + 1,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			_, _, err := storage.GetUserBalance(ctx, tt.userID)
+			assert.Equal(t, tt.wantErr, err != nil)
 		})
 	}
 }

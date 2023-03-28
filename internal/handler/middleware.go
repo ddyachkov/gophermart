@@ -17,7 +17,7 @@ func (h handler) Authenticate() gin.HandlerFunc {
 			return
 		}
 
-		userID, hashedPassword, err := h.storage.GetUserInfo(c, login)
+		userID, hashedPassword, err := h.storage.GetUserCredentials(c, login)
 		if err != nil {
 			var httpStatusCode int
 			if errors.Is(err, storage.ErrIncorrectUserCredentials) {

@@ -28,7 +28,7 @@ type DBStorage struct {
 type Order struct {
 	Number     string    `json:"number"`
 	Status     string    `json:"status"`
-	Accrual    int       `json:"accrual,omitempty"`
+	Accrual    float32   `json:"accrual,omitempty"`
 	UploadedAt time.Time `json:"-" db:"uploaded_at"`
 }
 
@@ -60,12 +60,12 @@ func NewDBStorage(ctx context.Context, p *pgxpool.Pool) (storage *DBStorage, err
 }
 
 func (s DBStorage) Prepare(ctx context.Context) (err error) {
-	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.user (id SERIAL PRIMARY KEY, login TEXT UNIQUE NOT NULL, password TEXT NOT NULL)")
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.user (id SERIAL PRIMARY KEY, login TEXT UNIQUE NOT NULL, password TEXT NOT NULL, current REAL NOT NULL DEFAULT 0, withdrawn REAL NOT NULL DEFAULT 0)")
 	if err != nil {
 		return err
 	}
 
-	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number TEXT UNIQUE NOT NULL, uploaded_at timestamp with time zone NOT NULL DEFAULT (current_timestamp), status TEXT NOT NULL, accrual INTEGER NOT NULL DEFAULT 0, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.order (id SERIAL PRIMARY KEY, number TEXT UNIQUE NOT NULL, uploaded_at timestamp with time zone NOT NULL DEFAULT (current_timestamp), status TEXT NOT NULL, accrual REAL NOT NULL DEFAULT 0, user_id INTEGER REFERENCES public.user (id) NOT NULL)")
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (s DBStorage) CreateUser(ctx context.Context, login string, password string
 	return nil
 }
 
-func (s DBStorage) GetUserInfo(ctx context.Context, login string) (id int, password string, err error) {
+func (s DBStorage) GetUserCredentials(ctx context.Context, login string) (id int, password string, err error) {
 	err = s.pool.QueryRow(ctx, "SELECT u.id, u.password FROM public.user u WHERE u.login = $1", login).Scan(&id, &password)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -135,4 +135,13 @@ func (s DBStorage) GetUserOrders(ctx context.Context, userID int) (orders []Orde
 	}
 
 	return orders, nil
+}
+
+func (s DBStorage) GetUserBalance(ctx context.Context, usedID int) (current float32, withdrawn float32, err error) {
+	err = s.pool.QueryRow(ctx, "SELECT u.current, u.withdrawn FROM public.user u WHERE u.id = $1", usedID).Scan(&current, &withdrawn)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return current, withdrawn, nil
 }

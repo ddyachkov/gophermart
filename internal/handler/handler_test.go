@@ -22,6 +22,22 @@ import (
 
 var cfg config.ServerConfig = config.ServerConfig{DatabaseURI: "postgres://gophermart:gophermart@127.0.0.1:5432/gophermart"}
 
+func sendRequest(handler http.Handler, body string, method string, path string, user user) *http.Response {
+	w := httptest.NewRecorder()
+	var r *http.Request
+	if body != "" {
+		bodyReader := strings.NewReader(body)
+		r = httptest.NewRequest(method, path, bodyReader)
+	} else {
+		r = httptest.NewRequest(method, path, nil)
+	}
+	if user.Login != "" {
+		r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user.Login+":"+user.Password)))
+	}
+	handler.ServeHTTP(w, r)
+	return w.Result()
+}
+
 func Test_handler_RegisterUser(t *testing.T) {
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -84,12 +100,7 @@ func Test_handler_RegisterUser(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			bodyReader := strings.NewReader(tt.body)
-			r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/register", user{})
 			assert.Equal(t, tt.want.code, res.StatusCode)
 			assert.Contains(t, res.Header.Get("Authorization"), tt.want.authorization)
 		})
@@ -121,11 +132,7 @@ func Test_handler_LogInUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(ruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -173,12 +180,7 @@ func Test_handler_LogInUser(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			bodyReader := strings.NewReader(tt.body)
-			r := httptest.NewRequest(http.MethodPost, "/api/user/login", bodyReader)
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/login", user{})
 			assert.Equal(t, tt.want.code, res.StatusCode)
 			assert.Contains(t, res.Header.Get("Authorization"), tt.want.authorization)
 		})
@@ -210,11 +212,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(fruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -225,11 +223,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w = httptest.NewRecorder()
-	bodyReader = strings.NewReader(string(sruBody))
-	r = httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res = w.Result()
+	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -278,13 +272,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			bodyReader := strings.NewReader(tt.body)
-			r := httptest.NewRequest(http.MethodPost, "/api/user/orders", bodyReader)
-			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/orders", tt.user)
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -315,20 +303,11 @@ func Test_handler_GetUserOrders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(fruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	orderNumber := goluhn.Generate(8)
-	w = httptest.NewRecorder()
-	bodyReader = strings.NewReader(orderNumber)
-	r = httptest.NewRequest(http.MethodPost, "/api/user/orders", bodyReader)
-	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(firstRegisteredUser.Login+":"+firstRegisteredUser.Password)))
-	handler.ServeHTTP(w, r)
-	res = w.Result()
+	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", firstRegisteredUser)
 	require.Equal(t, http.StatusAccepted, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -339,11 +318,7 @@ func Test_handler_GetUserOrders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w = httptest.NewRecorder()
-	bodyReader = strings.NewReader(string(sruBody))
-	r = httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res = w.Result()
+	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -374,12 +349,7 @@ func Test_handler_GetUserOrders(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
-			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, "", http.MethodGet, "/api/user/orders", tt.user)
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -410,11 +380,7 @@ func Test_handler_GetUserBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(ruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -440,12 +406,7 @@ func Test_handler_GetUserBalance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
-			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, "", http.MethodGet, "/api/user/balance", tt.user)
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -476,11 +437,7 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(ruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
@@ -552,13 +509,7 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			bodyReader := strings.NewReader(tt.withdrawal)
-			r := httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", bodyReader)
-			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, tt.withdrawal, http.MethodPost, "/api/user/balance/withdraw", tt.user)
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -589,11 +540,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := httptest.NewRecorder()
-	bodyReader := strings.NewReader(string(fruBody))
-	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res := w.Result()
+	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -604,11 +551,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w = httptest.NewRecorder()
-	bodyReader = strings.NewReader(string(sruBody))
-	r = httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
-	handler.ServeHTTP(w, r)
-	res = w.Result()
+	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -637,12 +580,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w = httptest.NewRecorder()
-	bodyReader = strings.NewReader(string(wBody))
-	r = httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", bodyReader)
-	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(firstRegisteredUser.Login+":"+firstRegisteredUser.Password)))
-	handler.ServeHTTP(w, r)
-	res = w.Result()
+	res = sendRequest(handler, string(wBody), http.MethodPost, "/api/user/balance/withdraw", firstRegisteredUser)
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	tests := []struct {
@@ -668,12 +606,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
-			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
-			handler.ServeHTTP(w, r)
-			res := w.Result()
-
+			res := sendRequest(handler, "", http.MethodGet, "/api/user/withdrawals", tt.user)
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}

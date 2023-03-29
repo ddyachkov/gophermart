@@ -13,7 +13,7 @@ func (h handler) Authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		login, password, ok := c.Request.BasicAuth()
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error()})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error(), "status": http.StatusUnauthorized})
 			return
 		}
 
@@ -25,12 +25,12 @@ func (h handler) Authenticate() gin.HandlerFunc {
 			} else {
 				httpStatusCode = http.StatusInternalServerError
 			}
-			c.AbortWithStatusJSON(httpStatusCode, gin.H{"message": err.Error()})
+			c.AbortWithStatusJSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 			return
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error()})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error(), "status": http.StatusUnauthorized})
 			return
 		}
 		c.Set("userID", userID)

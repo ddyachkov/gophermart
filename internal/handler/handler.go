@@ -23,11 +23,6 @@ type user struct {
 	Password string `json:"password"`
 }
 
-type withdrawal struct {
-	Order string  `json:"order"`
-	Sum   float32 `json:"sum"`
-}
-
 func NewHandler(s *storage.DBStorage) http.Handler {
 	router := gin.Default()
 
@@ -46,6 +41,7 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 		authorized.GET("/api/user/orders", h.GetUserOrders)
 		authorized.GET("/api/user/balance", h.GetUserBalance)
 		authorized.POST("/api/user/balance/withdraw", h.WithdrawFromUserBalance)
+		authorized.GET("/api/user/withdrawals", h.GetUserWithdrawals)
 	}
 
 	return router
@@ -167,19 +163,19 @@ func (h handler) GetUserBalance(c *gin.Context) {
 }
 
 func (h handler) WithdrawFromUserBalance(c *gin.Context) {
-	w := withdrawal{}
+	w := storage.Withdrawal{}
 	if err := c.ShouldBindJSON(&w); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format", "status": http.StatusBadRequest})
 		return
 	}
 
-	if err := goluhn.Validate(w.Order); err != nil {
+	if err := goluhn.Validate(w.OrderNumber); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format", "status": http.StatusUnprocessableEntity})
 		return
 	}
 
 	userID := c.MustGet("userID").(int)
-	if err := h.storage.WithdrawFromOrder(c, w.Order, w.Sum, userID); err != nil {
+	if err := h.storage.WithdrawFromUserBalance(c, w.OrderNumber, w.Sum, userID); err != nil {
 		var httpStatusCode int
 		if errors.Is(err, storage.ErrInsufficientFunds) {
 			httpStatusCode = http.StatusPaymentRequired
@@ -191,4 +187,21 @@ func (h handler) WithdrawFromUserBalance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "successful withdrawal", "status": http.StatusOK})
+}
+
+func (h handler) GetUserWithdrawals(c *gin.Context) {
+	userID := c.MustGet("userID").(int)
+	withdrawals, err := h.storage.GetUserWithdrawals(c, userID)
+	if err != nil {
+		var httpStatusCode int
+		if errors.Is(err, storage.ErrNoWithdrawalsFound) {
+			httpStatusCode = http.StatusNoContent
+		} else {
+			httpStatusCode = http.StatusInternalServerError
+		}
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
+		return
+	}
+
+	c.JSON(http.StatusOK, withdrawals)
 }

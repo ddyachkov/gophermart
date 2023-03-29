@@ -13,7 +13,7 @@ func Decompress() gin.HandlerFunc {
 		if strings.Contains(c.GetHeader("Content-Encoding"), "gzip") {
 			gz, err := gzip.NewReader(c.Request.Body)
 			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "status": http.StatusInternalServerError})
 				return
 			}
 			c.Request.Body = gz

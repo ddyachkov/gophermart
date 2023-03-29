@@ -496,18 +496,18 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 	}
 
 	orderNumber := goluhn.Generate(8)
-	correctWithdrawal := withdrawal{
-		Order: orderNumber,
-		Sum:   sum,
+	correctWithdrawal := storage.Withdrawal{
+		OrderNumber: orderNumber,
+		Sum:         sum,
 	}
 	cwBody, err := json.Marshal(correctWithdrawal)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	incorrectWithdrawal := withdrawal{
-		Order: orderNumber + "a",
-		Sum:   sum,
+	incorrectWithdrawal := storage.Withdrawal{
+		OrderNumber: orderNumber + "a",
+		Sum:         sum,
 	}
 	iwBody, err := json.Marshal(incorrectWithdrawal)
 	if err != nil {
@@ -555,6 +555,121 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 			w := httptest.NewRecorder()
 			bodyReader := strings.NewReader(tt.withdrawal)
 			r := httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", bodyReader)
+			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
+			handler.ServeHTTP(w, r)
+			res := w.Result()
+
+			assert.Equal(t, tt.code, res.StatusCode)
+		})
+	}
+}
+
+func Test_handler_GetUserWithdrawals(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	dbStorage, err := storage.NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewHandler(dbStorage)
+
+	firstRegisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	fruBody, err := json.Marshal(firstRegisteredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	bodyReader := strings.NewReader(string(fruBody))
+	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	secondRegisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	sruBody, err := json.Marshal(secondRegisteredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	bodyReader = strings.NewReader(string(sruBody))
+	r = httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res = w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	unregisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+
+	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := float32(sum64)
+
+	//temporary
+	_, err = dbPool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE login = $2", sum, firstRegisteredUser.Login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	withdrawal := storage.Withdrawal{
+		OrderNumber: orderNumber,
+		Sum:         sum,
+	}
+	wBody, err := json.Marshal(withdrawal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	bodyReader = strings.NewReader(string(wBody))
+	r = httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", bodyReader)
+	r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(firstRegisteredUser.Login+":"+firstRegisteredUser.Password)))
+	handler.ServeHTTP(w, r)
+	res = w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	tests := []struct {
+		name string
+		user user
+		code int
+	}{
+		{
+			name: "Positive_FoundWithdrawals",
+			user: firstRegisteredUser,
+			code: http.StatusOK,
+		},
+		{
+			name: "Negative_NoWithdrawals",
+			user: secondRegisteredUser,
+			code: http.StatusNoContent,
+		},
+		{
+			name: "Negative_Unauthorized",
+			user: unregisteredUser,
+			code: http.StatusUnauthorized,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
 			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
 			handler.ServeHTTP(w, r)
 			res := w.Result()

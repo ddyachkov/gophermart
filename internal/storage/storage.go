@@ -2,9 +2,7 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgerrcode"
@@ -20,31 +18,11 @@ var (
 	ErrHaveOrderByDiffUser      = errors.New("order already uploaded by different user")
 	ErrNoOrdersFound            = errors.New("no orders found")
 	ErrInsufficientFunds        = errors.New("insufficient funds on the user balance")
+	ErrNoWithdrawalsFound       = errors.New("no withdrawals found")
 )
 
 type DBStorage struct {
 	pool *pgxpool.Pool
-}
-
-type Order struct {
-	Number     string    `json:"number"`
-	Status     string    `json:"status"`
-	Accrual    float32   `json:"accrual,omitempty"`
-	UploadedAt time.Time `json:"-" db:"uploaded_at"`
-}
-
-func (o Order) MarshalJSON() ([]byte, error) {
-	type OrderAlias Order
-
-	aliasValue := struct {
-		OrderAlias
-		UploadedAtRFC3339 string `json:"uploaded_at"`
-	}{
-		OrderAlias:        OrderAlias(o),
-		UploadedAtRFC3339: o.UploadedAt.Format(time.RFC3339),
-	}
-
-	return json.Marshal(aliasValue)
 }
 
 func NewDBStorage(ctx context.Context, p *pgxpool.Pool) (storage *DBStorage, err error) {
@@ -156,7 +134,7 @@ func (s DBStorage) GetUserBalance(ctx context.Context, userID int) (current floa
 	return current, withdrawn, nil
 }
 
-func (s DBStorage) WithdrawFromOrder(ctx context.Context, orderNumber string, sum float32, userID int) (err error) {
+func (s DBStorage) WithdrawFromUserBalance(ctx context.Context, orderNumber string, sum float32, userID int) (err error) {
 	batch := &pgx.Batch{}
 	batch.Queue("UPDATE public.user SET current = current - $1, withdrawn = withdrawn + $1 WHERE id = $2", sum, userID)
 	batch.Queue("INSERT INTO public.withdrawal (order_number, sum, user_id) VALUES ($1, $2, $3)", orderNumber, sum, userID)
@@ -174,4 +152,17 @@ func (s DBStorage) WithdrawFromOrder(ctx context.Context, orderNumber string, su
 	}
 
 	return nil
+}
+
+func (s DBStorage) GetUserWithdrawals(ctx context.Context, userID int) (withdrawals []Withdrawal, err error) {
+	withdrawals = make([]Withdrawal, 0)
+	err = pgxscan.Select(ctx, s.pool, &withdrawals, "SELECT wd.order_number, wd.sum, wd.processed_at FROM public.withdrawal wd WHERE wd.user_id = $1", userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(withdrawals) == 0 {
+		return nil, ErrNoWithdrawalsFound
+	}
+
+	return withdrawals, nil
 }

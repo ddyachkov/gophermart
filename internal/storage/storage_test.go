@@ -314,7 +314,7 @@ func TestDBStorage_GetUserBalance(t *testing.T) {
 	}
 }
 
-func TestDBStorage_WithdrawFromOrder(t *testing.T) {
+func TestDBStorage_WithdrawFromUserBalance(t *testing.T) {
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -374,7 +374,89 @@ func TestDBStorage_WithdrawFromOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 			defer cancel()
-			err := storage.WithdrawFromOrder(ctx, orderNumber, sum, userID)
+			err := storage.WithdrawFromUserBalance(ctx, orderNumber, sum, userID)
+			assert.Equal(t, tt.errType, err)
+		})
+	}
+}
+
+func TestDBStorage_GetUserWithdrawals(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	storage, err := NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := random.ASCIIString(4, 10)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(random.ASCIIString(16, 32)), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = storage.CreateUser(dbCtx, login, string(hashedPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := float32(sum64)
+
+	_, err = storage.pool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE id = $2", sum, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	err = storage.WithdrawFromUserBalance(dbCtx, orderNumber, sum, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		orderNumber string
+		userID      int
+		errType     error
+	}{
+		{
+			name:        "Positive_FoundOrder",
+			orderNumber: orderNumber,
+			userID:      userID,
+			errType:     nil,
+		},
+		{
+			name:        "Negative_NoWithdrawalsFound",
+			orderNumber: "",
+			userID:      userID + 1,
+			errType:     ErrNoWithdrawalsFound,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			gotWithdrawals, err := storage.GetUserWithdrawals(ctx, tt.userID)
+			var gotOrderNumber string
+			if len(gotWithdrawals) > 0 {
+				gotOrderNumber = gotWithdrawals[0].OrderNumber
+			}
+			assert.Equal(t, tt.orderNumber, gotOrderNumber)
 			assert.Equal(t, tt.errType, err)
 		})
 	}

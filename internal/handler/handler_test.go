@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -441,6 +442,119 @@ func Test_handler_GetUserBalance(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
+			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
+			handler.ServeHTTP(w, r)
+			res := w.Result()
+
+			assert.Equal(t, tt.code, res.StatusCode)
+		})
+	}
+}
+
+func Test_handler_WithdrawFromUserBalance(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	dbStorage, err := storage.NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewHandler(dbStorage)
+
+	registeredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+	ruBody, err := json.Marshal(registeredUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	bodyReader := strings.NewReader(string(ruBody))
+	r := httptest.NewRequest(http.MethodPost, "/api/user/register", bodyReader)
+	handler.ServeHTTP(w, r)
+	res := w.Result()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := float32(sum64)
+
+	//temporary
+	_, err = dbPool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE login = $2", sum, registeredUser.Login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	correctWithdrawal := withdrawal{
+		Order: orderNumber,
+		Sum:   sum,
+	}
+	cwBody, err := json.Marshal(correctWithdrawal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	incorrectWithdrawal := withdrawal{
+		Order: orderNumber + "a",
+		Sum:   sum,
+	}
+	iwBody, err := json.Marshal(incorrectWithdrawal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unregisteredUser := user{
+		Login:    random.ASCIIString(4, 10),
+		Password: random.ASCIIString(16, 32),
+	}
+
+	tests := []struct {
+		name       string
+		user       user
+		withdrawal string
+		code       int
+	}{
+		{
+			name:       "Positive_SuccessfulWithdrawal",
+			user:       registeredUser,
+			withdrawal: string(cwBody),
+			code:       http.StatusOK,
+		},
+		{
+			name:       "Negative_InsufficientFunds",
+			user:       registeredUser,
+			withdrawal: string(cwBody),
+			code:       http.StatusPaymentRequired,
+		},
+		{
+			name:       "Negative_WrongOrderNumber",
+			user:       registeredUser,
+			withdrawal: string(iwBody),
+			code:       http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "Negative_Unauthorized",
+			user:       unregisteredUser,
+			withdrawal: string(cwBody),
+			code:       http.StatusUnauthorized,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			bodyReader := strings.NewReader(tt.withdrawal)
+			r := httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", bodyReader)
 			r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(tt.user.Login+":"+tt.user.Password)))
 			handler.ServeHTTP(w, r)
 			res := w.Result()

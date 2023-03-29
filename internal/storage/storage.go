@@ -19,6 +19,7 @@ var (
 	ErrHaveOrderBySameUser      = errors.New("order already uploaded by this user")
 	ErrHaveOrderByDiffUser      = errors.New("order already uploaded by different user")
 	ErrNoOrdersFound            = errors.New("no orders found")
+	ErrInsufficientFunds        = errors.New("insufficient funds on the user balance")
 )
 
 type DBStorage struct {
@@ -60,7 +61,7 @@ func NewDBStorage(ctx context.Context, p *pgxpool.Pool) (storage *DBStorage, err
 }
 
 func (s DBStorage) Prepare(ctx context.Context) (err error) {
-	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.user (id SERIAL PRIMARY KEY, login TEXT UNIQUE NOT NULL, password TEXT NOT NULL, current REAL NOT NULL DEFAULT 0, withdrawn REAL NOT NULL DEFAULT 0)")
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.user (id SERIAL PRIMARY KEY, login TEXT UNIQUE NOT NULL, password TEXT NOT NULL, current REAL NOT NULL DEFAULT 0 CHECK (current >= 0), withdrawn REAL NOT NULL DEFAULT 0)")
 	if err != nil {
 		return err
 	}
@@ -71,6 +72,16 @@ func (s DBStorage) Prepare(ctx context.Context) (err error) {
 	}
 
 	_, err = s.pool.Exec(ctx, "CREATE INDEX IF NOT EXISTS idx_ord_user_id ON public.order(user_id)")
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.withdrawal (id SERIAL PRIMARY KEY, order_number TEXT NOT NULL, sum REAL NOT NULL DEFAULT 0, processed_at timestamp with time zone NOT NULL DEFAULT (current_timestamp), user_id INTEGER REFERENCES public.user (id) NOT NULL)")
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pool.Exec(ctx, "CREATE INDEX IF NOT EXISTS idx_wd_user_id ON public.withdrawal(user_id)")
 	if err != nil {
 		return err
 	}
@@ -131,17 +142,36 @@ func (s DBStorage) GetUserOrders(ctx context.Context, userID int) (orders []Orde
 	}
 	if len(orders) == 0 {
 		return nil, ErrNoOrdersFound
-
 	}
 
 	return orders, nil
 }
 
-func (s DBStorage) GetUserBalance(ctx context.Context, usedID int) (current float32, withdrawn float32, err error) {
-	err = s.pool.QueryRow(ctx, "SELECT u.current, u.withdrawn FROM public.user u WHERE u.id = $1", usedID).Scan(&current, &withdrawn)
+func (s DBStorage) GetUserBalance(ctx context.Context, userID int) (current float32, withdrawn float32, err error) {
+	err = s.pool.QueryRow(ctx, "SELECT u.current, u.withdrawn FROM public.user u WHERE u.id = $1", userID).Scan(&current, &withdrawn)
 	if err != nil {
 		return 0, 0, err
 	}
 
 	return current, withdrawn, nil
+}
+
+func (s DBStorage) WithdrawFromOrder(ctx context.Context, orderNumber string, sum float32, userID int) (err error) {
+	batch := &pgx.Batch{}
+	batch.Queue("UPDATE public.user SET current = current - $1, withdrawn = withdrawn + $1 WHERE id = $2", sum, userID)
+	batch.Queue("INSERT INTO public.withdrawal (order_number, sum, user_id) VALUES ($1, $2, $3)", orderNumber, sum, userID)
+
+	results := s.pool.SendBatch(ctx, batch)
+	defer results.Close()
+
+	_, err = results.Exec()
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.CheckViolation {
+			return ErrInsufficientFunds
+		}
+		return err
+	}
+
+	return nil
 }

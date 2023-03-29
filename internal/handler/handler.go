@@ -23,6 +23,11 @@ type user struct {
 	Password string `json:"password"`
 }
 
+type withdrawal struct {
+	Order string  `json:"order"`
+	Sum   float32 `json:"sum"`
+}
+
 func NewHandler(s *storage.DBStorage) http.Handler {
 	router := gin.Default()
 
@@ -40,6 +45,7 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 		authorized.POST("/api/user/orders", h.PostUserOrder)
 		authorized.GET("/api/user/orders", h.GetUserOrders)
 		authorized.GET("/api/user/balance", h.GetUserBalance)
+		authorized.POST("/api/user/balance/withdraw", h.WithdrawFromUserBalance)
 	}
 
 	return router
@@ -158,4 +164,31 @@ func (h handler) GetUserBalance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"current": current, "withdrawn": withdrawn})
+}
+
+func (h handler) WithdrawFromUserBalance(c *gin.Context) {
+	w := withdrawal{}
+	if err := c.ShouldBindJSON(&w); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
+		return
+	}
+
+	if err := goluhn.Validate(w.Order); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
+		return
+	}
+
+	userID := c.MustGet("userID").(int)
+	if err := h.storage.WithdrawFromOrder(c, w.Order, w.Sum, userID); err != nil {
+		var httpStatusCode int
+		if errors.Is(err, storage.ErrInsufficientFunds) {
+			httpStatusCode = http.StatusPaymentRequired
+		} else {
+			httpStatusCode = http.StatusInternalServerError
+		}
+		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "successful withdrawal"})
 }

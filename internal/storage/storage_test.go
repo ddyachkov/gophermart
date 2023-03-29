@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -309,6 +310,72 @@ func TestDBStorage_GetUserBalance(t *testing.T) {
 			defer cancel()
 			_, _, err := storage.GetUserBalance(ctx, tt.userID)
 			assert.Equal(t, tt.wantErr, err != nil)
+		})
+	}
+}
+
+func TestDBStorage_WithdrawFromOrder(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	storage, err := NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := random.ASCIIString(4, 10)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(random.ASCIIString(16, 32)), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = storage.CreateUser(dbCtx, login, string(hashedPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := float32(sum64)
+
+	_, err = storage.pool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE id = $2", sum, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	tests := []struct {
+		name    string
+		errType error
+	}{
+		{
+			name:    "Positive_SuccessfulWithdrawal",
+			errType: nil,
+		},
+		{
+			name:    "Negative_InsufficientFunds",
+			errType: ErrInsufficientFunds,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			err := storage.WithdrawFromOrder(ctx, orderNumber, sum, userID)
+			assert.Equal(t, tt.errType, err)
 		})
 	}
 }

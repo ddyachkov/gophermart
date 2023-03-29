@@ -54,13 +54,13 @@ func NewHandler(s *storage.DBStorage) http.Handler {
 func (h handler) RegisterUser(c *gin.Context) {
 	var u user
 	if err := c.ShouldBindJSON(&u); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format", "status": http.StatusBadRequest})
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "status": http.StatusInternalServerError})
 	}
 
 	if err := h.storage.CreateUser(c, u.Login, string(hashedPassword)); err != nil {
@@ -70,18 +70,18 @@ func (h handler) RegisterUser(c *gin.Context) {
 		} else {
 			httpStatusCode = http.StatusInternalServerError
 		}
-		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 		return
 	}
 
 	c.Header("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(u.Login+":"+u.Password)))
-	c.JSON(http.StatusOK, gin.H{"message": "user successfully registered and authenticated"})
+	c.JSON(http.StatusOK, gin.H{"message": "user successfully registered and authenticated", "status": http.StatusOK})
 }
 
 func (h handler) LogInUser(c *gin.Context) {
 	var u user
 	if err := c.ShouldBindJSON(&u); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format", "status": http.StatusBadRequest})
 		return
 	}
 
@@ -93,29 +93,29 @@ func (h handler) LogInUser(c *gin.Context) {
 		} else {
 			httpStatusCode = http.StatusInternalServerError
 		}
-		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(u.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error()})
+		c.JSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error(), "status": http.StatusUnauthorized})
 		return
 	}
 
 	c.Header("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(u.Login+":"+u.Password)))
-	c.JSON(http.StatusOK, gin.H{"message": "user successfully logged in"})
+	c.JSON(http.StatusOK, gin.H{"message": "user successfully logged in", "status": http.StatusOK})
 }
 
 func (h handler) PostUserOrder(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "status": http.StatusBadRequest})
 		return
 	}
 
 	orderNumber := string(body)
 	if err = goluhn.Validate(orderNumber); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format", "status": http.StatusUnprocessableEntity})
 		return
 	}
 
@@ -131,11 +131,11 @@ func (h handler) PostUserOrder(c *gin.Context) {
 		default:
 			httpStatusCode = http.StatusInternalServerError
 		}
-		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 		return
 	}
 
-	c.JSON(http.StatusAccepted, gin.H{"message": "new order accepted"})
+	c.JSON(http.StatusAccepted, gin.H{"message": "new order accepted", "status": http.StatusAccepted})
 }
 
 func (h handler) GetUserOrders(c *gin.Context) {
@@ -148,7 +148,7 @@ func (h handler) GetUserOrders(c *gin.Context) {
 		} else {
 			httpStatusCode = http.StatusInternalServerError
 		}
-		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h handler) GetUserBalance(c *gin.Context) {
 	userID := c.MustGet("userID").(int)
 	current, withdrawn, err := h.storage.GetUserBalance(c, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "status": http.StatusInternalServerError})
 		return
 	}
 
@@ -169,12 +169,12 @@ func (h handler) GetUserBalance(c *gin.Context) {
 func (h handler) WithdrawFromUserBalance(c *gin.Context) {
 	w := withdrawal{}
 	if err := c.ShouldBindJSON(&w); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "wrong request format", "status": http.StatusBadRequest})
 		return
 	}
 
 	if err := goluhn.Validate(w.Order); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "wrong order number format", "status": http.StatusUnprocessableEntity})
 		return
 	}
 
@@ -186,9 +186,9 @@ func (h handler) WithdrawFromUserBalance(c *gin.Context) {
 		} else {
 			httpStatusCode = http.StatusInternalServerError
 		}
-		c.JSON(httpStatusCode, gin.H{"message": err.Error()})
+		c.JSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "successful withdrawal"})
+	c.JSON(http.StatusOK, gin.H{"message": "successful withdrawal", "status": http.StatusOK})
 }

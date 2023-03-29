@@ -113,7 +113,6 @@ func (s DBStorage) InsertNewOrder(ctx context.Context, orderNumber string, userI
 }
 
 func (s DBStorage) GetUserOrders(ctx context.Context, userID int) (orders []Order, err error) {
-	orders = make([]Order, 0)
 	err = pgxscan.Select(ctx, s.pool, &orders, "SELECT o.number, o.status, o.accrual, o.uploaded_at FROM public.order o WHERE o.user_id = $1", userID)
 	if err != nil {
 		return nil, err
@@ -155,7 +154,6 @@ func (s DBStorage) WithdrawFromUserBalance(ctx context.Context, orderNumber stri
 }
 
 func (s DBStorage) GetUserWithdrawals(ctx context.Context, userID int) (withdrawals []Withdrawal, err error) {
-	withdrawals = make([]Withdrawal, 0)
 	err = pgxscan.Select(ctx, s.pool, &withdrawals, "SELECT wd.order_number, wd.sum, wd.processed_at FROM public.withdrawal wd WHERE wd.user_id = $1", userID)
 	if err != nil {
 		return nil, err

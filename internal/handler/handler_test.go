@@ -103,6 +103,7 @@ func Test_handler_RegisterUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/register", user{})
+			defer res.Body.Close()
 			assert.Equal(t, tt.want.code, res.StatusCode)
 			assert.Contains(t, res.Header.Get("Authorization"), tt.want.authorization)
 		})
@@ -135,6 +136,7 @@ func Test_handler_LogInUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -183,6 +185,7 @@ func Test_handler_LogInUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/login", user{})
+			defer res.Body.Close()
 			assert.Equal(t, tt.want.code, res.StatusCode)
 			assert.Contains(t, res.Header.Get("Authorization"), tt.want.authorization)
 		})
@@ -215,6 +218,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -226,6 +230,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -275,6 +280,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, tt.body, http.MethodPost, "/api/user/orders", tt.user)
+			defer res.Body.Close()
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -306,10 +312,12 @@ func Test_handler_GetUserOrders(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	orderNumber := goluhn.Generate(8)
 	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", firstRegisteredUser)
+	defer res.Body.Close()
 	require.Equal(t, http.StatusAccepted, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -321,6 +329,7 @@ func Test_handler_GetUserOrders(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -352,6 +361,7 @@ func Test_handler_GetUserOrders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, "", http.MethodGet, "/api/user/orders", tt.user)
+			defer res.Body.Close()
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -383,6 +393,7 @@ func Test_handler_GetUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -409,6 +420,7 @@ func Test_handler_GetUserBalance(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, "", http.MethodGet, "/api/user/balance", tt.user)
+			defer res.Body.Close()
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -444,10 +456,12 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	orderNumber := goluhn.Generate(8)
 	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", registeredUser)
+	defer res.Body.Close()
 	require.Equal(t, http.StatusAccepted, res.StatusCode)
 
 	res = sendRequest(handler, orderNumber, http.MethodGet, "/api/user/balance", registeredUser)
@@ -521,6 +535,7 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, tt.withdrawal, http.MethodPost, "/api/user/balance/withdraw", tt.user)
+			defer res.Body.Close()
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}
@@ -556,6 +571,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := sendRequest(handler, string(fruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	secondRegisteredUser := user{
@@ -567,6 +583,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = sendRequest(handler, string(sruBody), http.MethodPost, "/api/user/register", user{})
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	unregisteredUser := user{
@@ -576,9 +593,11 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 
 	orderNumber := goluhn.Generate(8)
 	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", firstRegisteredUser)
+	defer res.Body.Close()
 	require.Equal(t, http.StatusAccepted, res.StatusCode)
 
 	res = sendRequest(handler, orderNumber, http.MethodGet, "/api/user/balance", firstRegisteredUser)
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	balance := struct {
 		Current   float32
@@ -601,6 +620,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = sendRequest(handler, string(wBody), http.MethodPost, "/api/user/balance/withdraw", firstRegisteredUser)
+	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	tests := []struct {
@@ -627,6 +647,7 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := sendRequest(handler, "", http.MethodGet, "/api/user/withdrawals", tt.user)
+			defer res.Body.Close()
 			assert.Equal(t, tt.code, res.StatusCode)
 		})
 	}

@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ShiraazMoollatjie/goluhn"
+	"github.com/ddyachkov/gophermart/internal/accrual"
 	"github.com/ddyachkov/gophermart/internal/config"
+	"github.com/ddyachkov/gophermart/internal/queue"
 	"github.com/ddyachkov/gophermart/internal/random"
 	"github.com/ddyachkov/gophermart/internal/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,7 +55,7 @@ func Test_handler_RegisterUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	handler := NewHandler(dbStorage, nil)
 
 	u := user{
 		Login:    random.ASCIIString(4, 10),
@@ -122,7 +124,7 @@ func Test_handler_LogInUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	handler := NewHandler(dbStorage, nil)
 
 	registeredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -202,7 +204,7 @@ func Test_handler_PostUserOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	handler := NewHandler(dbStorage, nil)
 
 	firstRegisteredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -293,7 +295,7 @@ func Test_handler_GetUserOrders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	handler := NewHandler(dbStorage, nil)
 
 	firstRegisteredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -370,7 +372,7 @@ func Test_handler_GetUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	handler := NewHandler(dbStorage, nil)
 
 	registeredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -427,7 +429,11 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	accrualler := accrual.NewMockService(dbStorage)
+	queue := queue.NewQueue(accrualler, nil)
+	handler := NewHandler(dbStorage, queue)
+	go queue.Start()
+	defer queue.Stop()
 
 	registeredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -440,22 +446,27 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 	res := sendRequest(handler, string(ruBody), http.MethodPost, "/api/user/register", user{})
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
-	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := float32(sum64)
-
-	//temporary
-	_, err = dbPool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE login = $2", sum, registeredUser.Login)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	orderNumber := goluhn.Generate(8)
+	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", registeredUser)
+	require.Equal(t, http.StatusAccepted, res.StatusCode)
+
+	res = sendRequest(handler, orderNumber, http.MethodGet, "/api/user/balance", registeredUser)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	balance := struct {
+		Current   float32
+		Withdrawn float32
+	}{}
+
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal(resBody, &balance)
+
 	correctWithdrawal := storage.Withdrawal{
 		OrderNumber: orderNumber,
-		Sum:         sum,
+		Sum:         balance.Current,
 	}
 	cwBody, err := json.Marshal(correctWithdrawal)
 	if err != nil {
@@ -464,7 +475,7 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 
 	incorrectWithdrawal := storage.Withdrawal{
 		OrderNumber: orderNumber + "a",
-		Sum:         sum,
+		Sum:         balance.Current,
 	}
 	iwBody, err := json.Marshal(incorrectWithdrawal)
 	if err != nil {
@@ -530,7 +541,11 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := NewHandler(dbStorage)
+	accrualler := accrual.NewMockService(dbStorage)
+	queue := queue.NewQueue(accrualler, nil)
+	handler := NewHandler(dbStorage, queue)
+	go queue.Start()
+	defer queue.Stop()
 
 	firstRegisteredUser := user{
 		Login:    random.ASCIIString(4, 10),
@@ -559,22 +574,27 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		Password: random.ASCIIString(16, 32),
 	}
 
-	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := float32(sum64)
-
-	//temporary
-	_, err = dbPool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE login = $2", sum, firstRegisteredUser.Login)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	orderNumber := goluhn.Generate(8)
+	res = sendRequest(handler, orderNumber, http.MethodPost, "/api/user/orders", firstRegisteredUser)
+	require.Equal(t, http.StatusAccepted, res.StatusCode)
+
+	res = sendRequest(handler, orderNumber, http.MethodGet, "/api/user/balance", firstRegisteredUser)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	balance := struct {
+		Current   float32
+		Withdrawn float32
+	}{}
+
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal(resBody, &balance)
+
 	withdrawal := storage.Withdrawal{
 		OrderNumber: orderNumber,
-		Sum:         sum,
+		Sum:         balance.Current,
 	}
 	wBody, err := json.Marshal(withdrawal)
 	if err != nil {

@@ -14,9 +14,9 @@ var (
 )
 
 type ServerConfig struct {
-	RunAddress           string `env:"RUN_ADDRESS" envDefault:"localhost:8080"`
+	RunAddress           string `env:"RUN_ADDRESS" envDefault:"localhost:8888"`
 	DatabaseURI          string `env:"DATABASE_URI" envDefault:"postgres://gophermart:gophermart@127.0.0.1:5432/gophermart"`
-	AccrualSystemAddress string `env:"ACCRUAL_SYSTEM_ADDRESS" envDefault:"/home/war_1ock/go/src/gophermart/cmd/accrual/accrual_linux_amd64"`
+	AccrualSystemAddress string `env:"ACCRUAL_SYSTEM_ADDRESS" envDefault:"http://localhost:8080"`
 }
 
 func DefaultServerConfig() *ServerConfig {

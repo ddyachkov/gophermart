@@ -10,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ddyachkov/gophermart/internal/accrual"
 	"github.com/ddyachkov/gophermart/internal/config"
 	"github.com/ddyachkov/gophermart/internal/handler"
+	"github.com/ddyachkov/gophermart/internal/queue"
 	"github.com/ddyachkov/gophermart/internal/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,7 +27,7 @@ func main() {
 
 	dbpool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatalln(err.Error())
 	}
 	defer dbpool.Close()
 
@@ -34,27 +36,38 @@ func main() {
 		log.Fatalln(err.Error())
 	}
 
+	orders, err := storage.GetNewOrders(dbCtx)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	accrualler := accrual.NewAccrualService(cfg.AccrualSystemAddress, storage)
+	queue := queue.NewQueue(accrualler, orders)
 	server := http.Server{
 		Addr:    cfg.RunAddress,
-		Handler: handler.NewHandler(storage),
+		Handler: handler.NewHandler(storage, queue),
 	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	go queue.Start()
+
 	go func() {
-		log.Println("server starting...")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+			log.Fatalln(err)
 		}
 	}()
 
 	<-quit
 
+	if err := queue.Stop(); err != nil {
+		log.Fatalln(err)
+	}
+
 	srvCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(srvCtx); err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
-	log.Println("server stopped")
 }

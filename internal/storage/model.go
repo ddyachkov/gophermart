@@ -10,6 +10,7 @@ type Order struct {
 	Status     string    `json:"status"`
 	Accrual    float32   `json:"accrual,omitempty"`
 	UploadedAt time.Time `json:"-" db:"uploaded_at"`
+	UserID     int       `json:"-"  db:"user_id"`
 }
 
 func (o Order) MarshalJSON() ([]byte, error) {

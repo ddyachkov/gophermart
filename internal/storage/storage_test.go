@@ -58,7 +58,7 @@ func TestDBStorage_CreateUser(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			err := storage.CreateUser(ctx, tt.login, tt.password)
 			assert.ErrorIs(t, tt.errType, err)
@@ -110,7 +110,7 @@ func TestDBStorage_GetUserCredentials(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_, _, err := storage.GetUserCredentials(ctx, tt.login)
 			assert.ErrorIs(t, tt.errType, err)
@@ -178,7 +178,7 @@ func TestDBStorage_InsertNewOrder(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			err := storage.InsertNewOrder(ctx, tt.orderNumber, tt.userID)
 			assert.ErrorIs(t, tt.errType, err)
@@ -244,7 +244,7 @@ func TestDBStorage_GetUserOrders(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			gotOrders, err := storage.GetUserOrders(ctx, tt.userID)
 			var gotOrderNumber string
@@ -306,7 +306,7 @@ func TestDBStorage_GetUserBalance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_, _, err := storage.GetUserBalance(ctx, tt.userID)
 			assert.Equal(t, tt.wantErr, err != nil)
@@ -345,18 +345,21 @@ func TestDBStorage_WithdrawFromUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	orderNumber := goluhn.Generate(8)
+	err = storage.InsertNewOrder(dbCtx, orderNumber, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := float32(sum64)
-
-	_, err = storage.pool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE id = $2", sum, userID)
+	err = storage.UpdateOrderStatus(dbCtx, Order{Number: orderNumber, Status: "PROCESSED", Accrual: sum, UserID: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	orderNumber := goluhn.Generate(8)
 	tests := []struct {
 		name    string
 		errType error
@@ -372,7 +375,7 @@ func TestDBStorage_WithdrawFromUserBalance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			err := storage.WithdrawFromUserBalance(ctx, orderNumber, sum, userID)
 			assert.Equal(t, tt.errType, err)
@@ -411,18 +414,21 @@ func TestDBStorage_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	orderNumber := goluhn.Generate(8)
+	err = storage.InsertNewOrder(dbCtx, orderNumber, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := float32(sum64)
-
-	_, err = storage.pool.Exec(dbCtx, "UPDATE public.user SET current = $1 WHERE id = $2", sum, userID)
+	err = storage.UpdateOrderStatus(dbCtx, Order{Number: orderNumber, Status: "PROCESSED", Accrual: sum, UserID: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	orderNumber := goluhn.Generate(8)
 	err = storage.WithdrawFromUserBalance(dbCtx, orderNumber, sum, userID)
 	if err != nil {
 		t.Fatal(err)
@@ -449,7 +455,7 @@ func TestDBStorage_GetUserWithdrawals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			gotWithdrawals, err := storage.GetUserWithdrawals(ctx, tt.userID)
 			var gotOrderNumber string
@@ -458,6 +464,74 @@ func TestDBStorage_GetUserWithdrawals(t *testing.T) {
 			}
 			assert.Equal(t, tt.orderNumber, gotOrderNumber)
 			assert.Equal(t, tt.errType, err)
+		})
+	}
+}
+
+func TestDBStorage_UpdateOrderStatus(t *testing.T) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbPool, err := pgxpool.New(dbCtx, cfg.DatabaseURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbPool.Close()
+
+	storage, err := NewDBStorage(dbCtx, dbPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := random.ASCIIString(4, 10)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(random.ASCIIString(16, 32)), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = storage.CreateUser(dbCtx, login, string(hashedPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID, _, err := storage.GetUserCredentials(dbCtx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderNumber := goluhn.Generate(8)
+	err = storage.InsertNewOrder(dbCtx, orderNumber, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := float32(sum64)
+
+	order := Order{
+		Number:  orderNumber,
+		Status:  "PROCESSED",
+		Accrual: sum,
+		UserID:  userID,
+	}
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "Positive_SuccessfulUpdate",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := storage.UpdateOrderStatus(ctx, order)
+			assert.Equal(t, tt.wantErr, err != nil)
 		})
 	}
 }

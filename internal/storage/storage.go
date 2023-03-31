@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgerrcode"
@@ -50,6 +51,11 @@ func (s DBStorage) Prepare(ctx context.Context) (err error) {
 	}
 
 	_, err = s.pool.Exec(ctx, "CREATE INDEX IF NOT EXISTS idx_ord_user_id ON public.order(user_id)")
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pool.Exec(ctx, "CREATE INDEX IF NOT EXISTS idx_ord_status_new ON public.order(status) where status = 'NEW'")
 	if err != nil {
 		return err
 	}
@@ -163,4 +169,27 @@ func (s DBStorage) GetUserWithdrawals(ctx context.Context, userID int) (withdraw
 	}
 
 	return withdrawals, nil
+}
+
+func (s DBStorage) UpdateOrderStatus(ctx context.Context, order Order) (err error) {
+	batch := &pgx.Batch{}
+	batch.Queue("UPDATE public.order SET status = $1, accrual = $2 WHERE number = $3", order.Status, order.Accrual, order.Number)
+	batch.Queue("UPDATE public.user SET current = current + $1 WHERE id = $2", order.Accrual, order.UserID)
+
+	results := s.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	_, err = results.Exec()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s DBStorage) GetNewOrders(ctx context.Context) (orders []Order, err error) {
+	err = pgxscan.Select(ctx, s.pool, &orders, "SELECT o.number, o.user_id FROM public.order o WHERE o.status = 'NEW'")
+	if err != nil {
+		return nil, err
+	}
+	log.Println("got orders")
+	return orders, nil
 }

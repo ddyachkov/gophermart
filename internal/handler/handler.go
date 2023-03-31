@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShiraazMoollatjie/goluhn"
 	"github.com/ddyachkov/gophermart/internal/middleware"
+	"github.com/ddyachkov/gophermart/internal/queue"
 	"github.com/ddyachkov/gophermart/internal/storage"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ import (
 
 type handler struct {
 	storage *storage.DBStorage
+	queue   *queue.Queue
 }
 
 type user struct {
@@ -23,11 +25,12 @@ type user struct {
 	Password string `json:"password"`
 }
 
-func NewHandler(s *storage.DBStorage) http.Handler {
+func NewHandler(s *storage.DBStorage, q *queue.Queue) http.Handler {
 	router := gin.Default()
 
 	h := handler{
 		storage: s,
+		queue:   q,
 	}
 
 	router.Use(middleware.Decompress(), gzip.Gzip(gzip.DefaultCompression))
@@ -131,6 +134,14 @@ func (h handler) PostUserOrder(c *gin.Context) {
 		return
 	}
 
+	go func() {
+		order := storage.Order{
+			Number: orderNumber,
+			Status: "NEW",
+			UserID: userID,
+		}
+		h.queue.Push(order)
+	}()
 	c.JSON(http.StatusAccepted, gin.H{"message": "new order accepted", "status": http.StatusAccepted})
 }
 

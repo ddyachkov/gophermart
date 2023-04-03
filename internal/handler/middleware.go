@@ -9,31 +9,39 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (h handler) Authenticate() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		login, password, ok := c.Request.BasicAuth()
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error(), "status": http.StatusUnauthorized})
-			return
+func (h handler) Authenticate(c *gin.Context) {
+	login, password, ok := c.Request.BasicAuth()
+	if !ok {
+		message := gin.H{
+			"message": storage.ErrIncorrectUserCredentials.Error(),
+			"status":  http.StatusUnauthorized,
 		}
-
-		userID, hashedPassword, err := h.storage.GetUserCredentials(c, login)
-		if err != nil {
-			var httpStatusCode int
-			if errors.Is(err, storage.ErrIncorrectUserCredentials) {
-				httpStatusCode = http.StatusUnauthorized
-			} else {
-				httpStatusCode = http.StatusInternalServerError
-			}
-			c.AbortWithStatusJSON(httpStatusCode, gin.H{"message": err.Error(), "status": httpStatusCode})
-			return
-		}
-
-		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": storage.ErrIncorrectUserCredentials.Error(), "status": http.StatusUnauthorized})
-			return
-		}
-		c.Set("userID", userID)
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusUnauthorized, message)
+		return
 	}
+
+	userID, hashedPassword, err := h.storage.GetUserCredentials(c, login)
+	if err != nil {
+		httpStatusCode := http.StatusInternalServerError
+		if errors.Is(err, storage.ErrIncorrectUserCredentials) {
+			httpStatusCode = http.StatusUnauthorized
+		}
+		message := gin.H{
+			"message": err.Error(),
+			"status":  httpStatusCode,
+		}
+		c.AbortWithStatusJSON(httpStatusCode, message)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
+		message := gin.H{
+			"message": storage.ErrIncorrectUserCredentials.Error(),
+			"status":  http.StatusUnauthorized,
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, message)
+		return
+	}
+	c.Set("userID", userID)
+	c.Next()
 }

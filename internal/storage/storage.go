@@ -140,14 +140,13 @@ func (s DBStorage) GetUserBalance(ctx context.Context, userID int) (current floa
 }
 
 func (s DBStorage) WithdrawFromUserBalance(ctx context.Context, orderNumber string, sum float32, userID int) (err error) {
-	batch := &pgx.Batch{}
-	batch.Queue("UPDATE public.user SET current = current - $1, withdrawn = withdrawn + $1 WHERE id = $2", sum, userID)
-	batch.Queue("INSERT INTO public.withdrawal (order_number, sum, user_id) VALUES ($1, $2, $3)", orderNumber, sum, userID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 
-	results := s.pool.SendBatch(ctx, batch)
-	defer results.Close()
-
-	_, err = results.Exec()
+	_, err = tx.Exec(ctx, "UPDATE public.user SET current = current - $1, withdrawn = withdrawn + $1 WHERE id = $2", sum, userID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.CheckViolation {
@@ -156,6 +155,12 @@ func (s DBStorage) WithdrawFromUserBalance(ctx context.Context, orderNumber stri
 		return err
 	}
 
+	_, err = tx.Exec(ctx, "INSERT INTO public.withdrawal (order_number, sum, user_id) VALUES ($1, $2, $3)", orderNumber, sum, userID)
+	if err != nil {
+		return err
+	}
+
+	tx.Commit(ctx)
 	return nil
 }
 
@@ -172,16 +177,23 @@ func (s DBStorage) GetUserWithdrawals(ctx context.Context, userID int) (withdraw
 }
 
 func (s DBStorage) UpdateOrderStatus(ctx context.Context, order Order) (err error) {
-	batch := &pgx.Batch{}
-	batch.Queue("UPDATE public.order SET status = $1, accrual = $2 WHERE number = $3", order.Status, order.Accrual, order.Number)
-	batch.Queue("UPDATE public.user SET current = current + $1 WHERE id = $2", order.Accrual, order.UserID)
-
-	results := s.pool.SendBatch(ctx, batch)
-	defer results.Close()
-	_, err = results.Exec()
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, "UPDATE public.order SET status = $1, accrual = $2 WHERE number = $3", order.Status, order.Accrual, order.Number)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, "UPDATE public.user SET current = current + $1 WHERE id = $2", order.Accrual, order.UserID)
+	if err != nil {
+		return err
+	}
+
+	tx.Commit(ctx)
 	return nil
 }
 

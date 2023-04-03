@@ -37,8 +37,6 @@ func (as AccrualService) OrderAccrual(order storage.Order) (ready bool, err erro
 	switch responce.StatusCode() {
 	case http.StatusNoContent:
 		return true, ErrNotRegisteredOrder
-	case http.StatusNotFound:
-		return true, ErrPageNotFound
 	case http.StatusTooManyRequests:
 		return false, nil
 	}

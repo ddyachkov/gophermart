@@ -24,18 +24,23 @@ func NewQueue(a accrual.Accrualler, orders []storage.Order) (queue *Queue) {
 		service: a,
 		orders:  make(chan storage.Order),
 	}
-
-	for _, order := range orders {
-		go func(o storage.Order) {
-			queue.orders <- o
-		}(order)
-	}
+	go func() {
+		for _, order := range orders {
+			queue.orders <- order
+		}
+	}()
 
 	return queue
 }
 
 func (aq *Queue) Start() {
-	for !aq.closed {
+	for {
+		aq.Lock()
+		if aq.closed {
+			break
+		}
+		aq.Unlock()
+
 		order, ok := <-aq.orders
 		if !ok {
 			continue

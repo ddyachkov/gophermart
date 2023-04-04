@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/ddyachkov/gophermart/internal/storage"
@@ -13,41 +14,35 @@ import (
 type AccrualService struct {
 	address string
 	client  *resty.Client
-	storage *storage.DBStorage
 }
 
-func NewAccrualService(a string, st *storage.DBStorage) (service *AccrualService) {
+func NewAccrualService(a string) (service *AccrualService) {
 	return &AccrualService{
 		address: a,
 		client:  resty.New(),
-		storage: st,
 	}
 }
 
-func (as AccrualService) OrderAccrual(order storage.Order) (ready bool, err error) {
+func (as AccrualService) OrderAccrual(ctx context.Context, order *storage.Order) (delay time.Duration, err error) {
 	serviceURL, err := url.JoinPath(as.address, "/api/orders/")
 	if err != nil {
-		return true, err
+		return delay, err
 	}
-	responce, err := as.client.R().SetResult(&order).Get(serviceURL + order.Number)
+	responce, err := as.client.R().SetContext(ctx).SetResult(order).Get(serviceURL + order.Number)
 	if err != nil {
-		return true, err
+		return delay, err
 	}
 
 	switch responce.StatusCode() {
 	case http.StatusNoContent:
-		return true, ErrNotRegisteredOrder
+		return delay, ErrNotRegisteredOrder
 	case http.StatusTooManyRequests:
-		return false, nil
+		retry, err := strconv.Atoi(responce.Header().Get("Retry-After"))
+		if err != nil {
+			return delay, err
+		}
+		delay = time.Second * time.Duration(retry)
 	}
 
-	if order.Status == "REGISTERED" || order.Status == "PROCESSING" {
-		return false, nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err = as.storage.UpdateOrderStatus(ctx, order)
-
-	return true, err
+	return delay, nil
 }

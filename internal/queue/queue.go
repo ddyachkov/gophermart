@@ -1,81 +1,89 @@
 package queue
 
 import (
-	"errors"
+	"context"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/ddyachkov/gophermart/internal/accrual"
 	"github.com/ddyachkov/gophermart/internal/storage"
+	"golang.org/x/time/rate"
 )
 
-var ErrQueueClosed = errors.New("queue is closed")
+var defaultLimit = rate.Every(time.Second / 10)
 
 type Queue struct {
 	service accrual.Accrualler
 	orders  chan storage.Order
-	sync.Mutex
-	closed bool
+	storage *storage.DBStorage
+	cancel  context.CancelFunc
+	limiter *rate.Limiter
 }
 
-func NewQueue(a accrual.Accrualler, orders []storage.Order) (queue *Queue) {
+func NewQueue(a accrual.Accrualler, st *storage.DBStorage) (queue *Queue) {
 	queue = &Queue{
 		service: a,
 		orders:  make(chan storage.Order),
+		storage: st,
+		limiter: rate.NewLimiter(defaultLimit, 1),
 	}
-	go func() {
-		for _, order := range orders {
-			queue.orders <- order
-		}
-	}()
 
 	return queue
 }
 
 func (aq *Queue) Start() {
+	qCtx, cancel := context.WithCancel(context.Background())
+	aq.cancel = cancel
+
+	orders, err := aq.storage.GetNewOrders(qCtx)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	go func() {
+		for _, order := range orders {
+			aq.orders <- order
+		}
+	}()
+
 	for {
-		aq.Lock()
-		if aq.closed {
-			break
-		}
-		aq.Unlock()
+		select {
+		case <-qCtx.Done():
+			return
+		case order := <-aq.orders:
+			aq.limiter.Wait(qCtx)
+			go func() {
+				delay, err := aq.service.OrderAccrual(qCtx, &order)
+				if err != nil {
+					log.Println("order #"+order.Number+":", err.Error())
+					return
+				}
 
-		order, ok := <-aq.orders
-		if !ok {
-			continue
+				limit := defaultLimit
+				if delay > 0 {
+					limit = rate.Every(delay)
+				}
+				if aq.limiter.Limit() != limit {
+					aq.limiter.SetLimit(limit)
+				}
+
+				if delay > 0 || order.Status == "REGISTERED" || order.Status == "PROCESSING" {
+					aq.orders <- order
+					return
+				}
+
+				if err = aq.storage.UpdateOrderStatus(qCtx, order); err != nil {
+					log.Println("order #"+order.Number+":", err.Error())
+				}
+			}()
 		}
-		go func() {
-			ready, err := aq.service.OrderAccrual(order)
-			if err != nil {
-				log.Println("order #"+order.Number+":", err.Error())
-			}
-			if !ready {
-				aq.orders <- order
-				time.Sleep(time.Second)
-			}
-		}()
 	}
 }
 
-func (aq *Queue) Push(order storage.Order) error {
-	aq.Lock()
-	defer aq.Unlock()
-	if aq.closed {
-		return ErrQueueClosed
-	}
+func (aq *Queue) Push(order storage.Order) {
 	aq.orders <- order
-	return nil
 }
 
-func (aq *Queue) Stop() error {
-	aq.Lock()
-	if aq.closed {
-		return ErrQueueClosed
-	}
-	aq.closed = true
-	close(aq.orders)
-	aq.Unlock()
-
-	return nil
+func (aq *Queue) Stop() {
+	aq.cancel()
 }

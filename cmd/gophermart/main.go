@@ -36,13 +36,8 @@ func main() {
 		log.Fatalln(err.Error())
 	}
 
-	orders, err := storage.GetNewOrders(dbCtx)
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
-
-	accrualler := accrual.NewAccrualService(cfg.AccrualSystemAddress, storage)
-	queue := queue.NewQueue(accrualler, orders)
+	accrualler := accrual.NewAccrualService(cfg.AccrualSystemAddress)
+	queue := queue.NewQueue(accrualler, storage)
 	server := http.Server{
 		Addr:    cfg.RunAddress,
 		Handler: handler.NewHandler(storage, queue),
@@ -61,9 +56,7 @@ func main() {
 
 	<-quit
 
-	if err := queue.Stop(); err != nil {
-		log.Fatalln(err)
-	}
+	queue.Stop()
 
 	srvCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

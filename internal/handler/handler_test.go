@@ -441,8 +441,8 @@ func Test_handler_WithdrawFromUserBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accrualler := accrual.NewMockService(dbStorage)
-	queue := queue.NewQueue(accrualler, nil)
+	accrualler := accrual.NewMockService()
+	queue := queue.NewQueue(accrualler, dbStorage)
 	handler := NewHandler(dbStorage, queue)
 	go queue.Start()
 	defer queue.Stop()
@@ -556,8 +556,8 @@ func Test_handler_GetUserWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accrualler := accrual.NewMockService(dbStorage)
-	queue := queue.NewQueue(accrualler, nil)
+	accrualler := accrual.NewMockService()
+	queue := queue.NewQueue(accrualler, dbStorage)
 	handler := NewHandler(dbStorage, queue)
 	go queue.Start()
 	defer queue.Stop()

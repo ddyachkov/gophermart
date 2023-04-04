@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgerrcode"
@@ -132,11 +131,8 @@ func (s DBStorage) GetUserOrders(ctx context.Context, userID int) (orders []Orde
 
 func (s DBStorage) GetUserBalance(ctx context.Context, userID int) (current float32, withdrawn float32, err error) {
 	err = s.pool.QueryRow(ctx, "SELECT u.current, u.withdrawn FROM public.user u WHERE u.id = $1", userID).Scan(&current, &withdrawn)
-	if err != nil {
-		return 0, 0, err
-	}
 
-	return current, withdrawn, nil
+	return current, withdrawn, err
 }
 
 func (s DBStorage) WithdrawFromUserBalance(ctx context.Context, orderNumber string, sum float32, userID int) (err error) {
@@ -194,14 +190,12 @@ func (s DBStorage) UpdateOrderStatus(ctx context.Context, order Order) (err erro
 	}
 
 	tx.Commit(ctx)
+
 	return nil
 }
 
 func (s DBStorage) GetNewOrders(ctx context.Context) (orders []Order, err error) {
 	err = pgxscan.Select(ctx, s.pool, &orders, "SELECT o.number, o.user_id FROM public.order o WHERE o.status = 'NEW'")
-	if err != nil {
-		return nil, err
-	}
-	log.Println("got orders")
-	return orders, nil
+
+	return orders, err
 }

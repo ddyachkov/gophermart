@@ -9,27 +9,19 @@ import (
 	"github.com/ddyachkov/gophermart/internal/storage"
 )
 
-type MockService struct {
-	storage *storage.DBStorage
+type MockService struct{}
+
+func NewMockService() (service *MockService) {
+	return &MockService{}
 }
 
-func NewMockService(st *storage.DBStorage) (service *MockService) {
-	return &MockService{
-		storage: st,
-	}
-}
-
-func (as MockService) OrderAccrual(order storage.Order) (ready bool, err error) {
+func (as MockService) OrderAccrual(ctx context.Context, order *storage.Order) (delay time.Duration, err error) {
 	sum64, err := strconv.ParseFloat(random.DigitString(1, 3), 32)
 	if err != nil {
-		return true, err
+		return delay, err
 	}
 	order.Accrual = float32(sum64)
 	order.Status = "PROCESSED"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err = as.storage.UpdateOrderStatus(ctx, order)
-
-	return true, err
+	return delay, nil
 }

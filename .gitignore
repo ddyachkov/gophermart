@@ -15,6 +15,9 @@
 cmd/gophermart/main
 cmd/gophermart/gophermart
 
+# Autotests
+cmd/autotests
+
 # Dependency directories (remove the comment below to include it)
 vendor/
 
